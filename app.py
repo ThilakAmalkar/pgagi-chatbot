@@ -20,7 +20,7 @@ app.secret_key = 'some_random_secret_key'
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+client = genai.configure(api_key=GEMINI_API_KEY)
 
 def validate_with_gemini(user_input, field_type):
     """
