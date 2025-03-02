@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+  <title>TalentScout Hiring Assistant</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css"
+    rel="stylesheet"
+  />
+  <style>
+    /* Overall page styles */
+    body {
+      background-color: white;
+      color: black;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Chat container with no border, larger width, centered */
+    #chat-container {
+      max-width: 1000px; /* Wider container for more left/right space */
+      margin: 0 auto;    /* Center horizontally */
+      /* Remove border and shadow */
+      border: none;
+      border-radius: 0;
+      padding: 16px;
+      height: calc(100vh - 200px); /* Adjust as needed */
+      overflow-y: auto;
+    }
+
+    /* Each message container */
+    .message {
+      margin: 8px 0;
+      display: flex;
+      align-items: center;
+    }
+
+    /* Shared bubble styling (for both user and bot) */
+    .bubble {
+      padding: 8px 12px;         /* Smaller padding for a sleeker look */
+      border-radius: 12px;
+      max-width: 75%;
+      word-wrap: break-word;
+      font-size: 22px;           /* Slightly smaller font if desired */
+    }
+
+    /* User message bubble */
+    .message.user .bubble {
+      background-color: #e0f2fe; /* Light blue background */
+      color: #000;
+      margin-left: auto; /* push user bubble to the right */
+    }
+
+    /* Bot message bubble */
+    .message.bot .bubble {
+      background-color: #f3f4f6; /* Light gray background */
+      color: #000;
+      margin-right: auto; /* push bot bubble to the left */
+    }
+
+    .input-container {
+    background-color: #f3f4f6;
+    border-top: 1px solid #d1d5db;
+    border-radius: 7777px;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    position: fixed;
+    bottom: 0;
+    left: 10%;  /* Added margin from left */
+    right: 10%; /* Added margin from right */
+}
+
+#user-input {
+    flex: 0.75; /* Makes input box 25% smaller */
+    padding: 8px 10px;
+    border-radius: 9999px;
+    border: 1px solid #d1d5db;
+    font-size: 20px; /* Adjust font size if needed */
+    outline: none;
+    margin-right: 8px;
+}
+
+    /* Smaller Send button */
+    #send-btn {
+      background-color: #3b82f6;
+      color: #fff;
+      padding: 8px 16px;          /* Reduced padding */
+      border-radius: 9999px;
+      font-size: 14px;            /* Smaller font size */
+      border: none;
+      cursor: pointer;
+    }
+    #send-btn:hover {
+      background-color: #2563eb;
+    }
+
+    /* Progress bar styling */
+    #progress-bar {
+      height: 4px;
+      background: #2563eb;
+      width: 0;
+    }
+  </style>
+</head>
+<body class="flex flex-col min-h-screen">
+  <!-- Header -->
+  <header class="bg-white text-black p-4 flex justify-between items-center">
+    <div class="flex items-center">
+      <img
+        alt="Robot logo"
+        class="mr-2"
+        height="40"
+        src="https://storage.googleapis.com/a1aa/image/hcEEYW8xQ8lfA25fWO7b5YqJzYrlpAx1K72yVAq77Ug.jpg"
+        width="40"
+      />
+      <h1 class="text-xl">TalentScout Hiring Assistant</h1>
+    </div>
+  </header>
+
+  <!-- Progress Bar -->
+  <div id="progress-bar"></div>
+
+  <!-- Chat Container -->
+  <main class="flex-grow p-4">
+    <div id="chat-container">
+      <div id="chatbox"></div>
+    </div>
+  </main>
+
+  <!-- Fixed Input Area -->
+  <div class="input-container">
+    <input
+      id="user-input"
+      placeholder="Type your message here..."
+      type="text"
+    />
+    <button id="send-btn">Send</button>
+  </div>
+
+  <!-- Footer -->
+  <footer class="bg-white text-black p-4 text-center">
+    © 2023 TalentScout. All rights reserved.
+  </footer>
+
+  <script>
+    const chatbox = document.getElementById("chatbox");
+    const userInput = document.getElementById("user-input");
+    const sendBtn = document.getElementById("send-btn");
+    const progressBar = document.getElementById("progress-bar");
+
+    // Utility to append a message to the chatbox
+    function appendMessage(sender, text) {
+      const msg = document.createElement("div");
+      msg.classList.add("message", sender);
+
+      const bubble = document.createElement("div");
+      bubble.classList.add("bubble");
+      bubble.innerHTML = `<i class="fas fa-${
+        sender === "user" ? "user" : "robot"
+      } mr-2"></i> ${text}`;
+
+      msg.appendChild(bubble);
+      chatbox.appendChild(msg);
+      chatbox.scrollTop = chatbox.scrollHeight;
+    }
+
+    // Send message to server and handle response
+    function sendMessage() {
+      const message = userInput.value.trim();
+      if (!message) return;
+
+      // Display user's message
+      appendMessage("user", message);
+      userInput.value = "";
+
+      // Display "thinking..." placeholder
+      const thinkingMsg = document.createElement("div");
+      thinkingMsg.classList.add("message", "bot");
+      thinkingMsg.innerHTML = `<div class="bubble"><i class="fas fa-robot mr-2"></i>Thinking...</div>`;
+      chatbox.appendChild(thinkingMsg);
+      chatbox.scrollTop = chatbox.scrollHeight;
+
+      // Send message to /chat
+      fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: message }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          chatbox.removeChild(thinkingMsg);
+          if (data.bot_message) {
+            appendMessage("bot", data.bot_message);
+          }
+        })
+        .catch((err) => {
+          chatbox.removeChild(thinkingMsg);
+          console.error(err);
+        });
+    }
+
+    // Send message on button click
+    sendBtn.addEventListener("click", sendMessage);
+
+    // Send message on Enter key
+    userInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        sendMessage();
+      }
+    });
+
+    // On page load, call /chat once to get the initial greeting
+    window.addEventListener("load", () => {
+      fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "" }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.bot_message) {
+            appendMessage("bot", data.bot_message);
+          }
+        })
+        .catch((err) => console.error(err));
+    });
+
+    // Scroll progress bar functionality
+    window.addEventListener("scroll", () => {
+      const scrollTop = window.scrollY;
+      const docHeight =
+        document.documentElement.scrollHeight - window.innerHeight;
+      const scrollPercent = (scrollTop / docHeight) * 100;
+      progressBar.style.width = scrollPercent + "%";
+    });
+  </script>
+</body>
+</html>
