@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: Bone-fracture-app
+    name: chatbot
     env: python
     region: oregon
     buildCommand: "pip install -r requirements.txt"
