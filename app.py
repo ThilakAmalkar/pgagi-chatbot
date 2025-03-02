@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify, session
 from flask_session import Session
 import google.generativeai as genai
 import re
+from app import app
 import os
 from dotenv import load_dotenv
 from pymongo import MongoClient
@@ -286,4 +287,4 @@ def chat():
         })
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    serve(app, host="0.0.0.0", port=5000)
