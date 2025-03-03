@@ -2,37 +2,26 @@ import os
 import re
 from flask import Flask, render_template, request, jsonify, session
 from flask_session import Session
-import google.generativeai as genai
+import google.generativeai as palm  # <-- import as palm
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-# ------------------------------------------------------------------
-# 1) Load environment variables from .env (for local dev)
-#    On Railway, set them directly in your project's Variables.
-# ------------------------------------------------------------------
 load_dotenv()
+
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# ------------------------------------------------------------------
-# 2) Configure MongoDB
-# ------------------------------------------------------------------
 mongo_client = MongoClient(MONGODB_URI)
-db = mongo_client["sample_database"]   # Database name
-collection = db["pgagi"]              # Collection name
+db = mongo_client["sample_database"]
+collection = db["pgagi"]
 
-# ------------------------------------------------------------------
-# 3) Initialize Flask
-# ------------------------------------------------------------------
 app = Flask(__name__)
 app.secret_key = 'some_random_secret_key'
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
-# ------------------------------------------------------------------
-# 4) Configure Google Generative AI globally
-# ------------------------------------------------------------------
-genai.configure(api_key=GEMINI_API_KEY)
+# Configure the library once at startup
+palm.configure(api_key=GEMINI_API_KEY)
 
 # ------------------------------------------------------------------
 # 5) Validation function using generative AI
@@ -63,19 +52,17 @@ You are a strict validator for user input fields.
     """.strip()
 
     try:
-        # Generate text with text-bison-001 model
-        response = genai.generate_text(
-            model="models/text-bison-001",  # or "models/chat-bison-001" if you prefer
+        # Use palm.generate_text or palm.chat, depending on your needs
+        response = palm.generate_text(
+            model="models/text-bison-001",
             prompt=prompt
         )
-        # Check the first generation
+        # Check the generation
         if response.generations:
-            result_text = response.generations[0].text.strip().upper()
-            return (result_text == "VALID")
+            text_out = response.generations[0].text.strip().upper()
+            return (text_out == "VALID")
         else:
-            # No generation returned => treat as invalid
             return False
-
     except Exception as e:
         print("Gemini validation error:", e)
         return False
