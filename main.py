@@ -1,15 +1,19 @@
+
+
 import os
 import re
-import openai
 from flask import Flask, render_template, request, jsonify, session
 from flask_session import Session
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
+# 1) Import the OpenAI client from openai
+from openai import OpenAI
+
 load_dotenv()
 
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+OPENROUTER_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 
 # Configure MongoDB
 mongo_client = MongoClient(MONGODB_URI)
@@ -21,24 +25,18 @@ app.secret_key = 'some_random_secret_key'
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
-# ------------------------------------------------------------------
-# Configure openai to talk to DeepSeek endpoint
-# ------------------------------------------------------------------
-openai.api_key = DEEPSEEK_API_KEY
-openai.api_base = "https://api.deepseek.com"  # or "https://api.deepseek.com/v1" if needed
+# 2) Create the OpenAI-compatible client pointing to OpenRouter
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+)
 
-# If your DeepSeek endpoint requires additional headers or other config,
-# you might need openai.requestssession or openai.proxy, but typically not.
-
-# ------------------------------------------------------------------
-# Validation with DeepSeek
-# ------------------------------------------------------------------
 def validate_with_deepseek(user_input, field_type):
     """
-    Validate user input for a specific field type using DeepSeek (OpenAI-compatible).
-    Must respond STRICTLY with "VALID" or "INVALID".
+    Validate user input for a specific field type using the DeepSeek model
+    on OpenRouter. Must respond STRICTLY with "VALID" or "INVALID".
     """
-    system_msg = (
+    system_content = (
         "You are a strict validator for user input fields.\n\n"
         "Rules:\n"
         "- Respond ONLY with 'VALID' or 'INVALID' (uppercase, no extra words).\n"
@@ -50,22 +48,27 @@ def validate_with_deepseek(user_input, field_type):
         "- Current Location: At least 2 letters.\n"
         "- Tech Stack: Non-empty, at least 2 letters.\n"
     )
+
     messages = [
-        {"role": "system", "content": system_msg},
-        {
-            "role": "user",
-            "content": f"Field Type: {field_type}\nUser Input: {user_input}",
-        },
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": f"Field Type: {field_type}\nUser Input: {user_input}"}
     ]
 
     try:
-        response = openai.ChatCompletion.create(
-            model="deepseek-chat",  # Adjust if your model name differs
-            messages=messages
+        completion = client.chat.completions.create(
+            model="deepseek/deepseek-r1:free",
+            messages=messages,
+            # Optional extra headers
+            extra_headers={
+                # "HTTP-Referer": "<YOUR_SITE_URL>",
+                # "X-Title": "<YOUR_SITE_NAME>",
+            },
+            # Optional extra body
+            extra_body={},
         )
-        # Parse response
-        if response.choices:
-            text_out = response.choices[0].message["content"].strip().upper()
+        # Grab the text from the first choice
+        if completion.choices:
+            text_out = completion.choices[0].message.content.strip().upper()
             return (text_out == "VALID")
         else:
             return False
@@ -75,6 +78,7 @@ def validate_with_deepseek(user_input, field_type):
 
 @app.route('/')
 def index():
+    # Clear session on page load
     session.clear()
     return render_template('index.html')
 
@@ -168,22 +172,29 @@ def chat():
         if validate_with_deepseek(user_message, "tech stack"):
             candidate_data['tech_stack'] = user_message
 
-            system_prompt = {
+            # We'll request 3 short questions from deepseek/deepseek-r1:free
+            system_msg = {
                 "role": "system",
                 "content": "You are an interviewer creating beginner-level questions. "
                            "Generate exactly 3 short questions, each limited to 2 lines."
             }
-            user_prompt = {
+            user_msg = {
                 "role": "user",
                 "content": f"For the tech stack: {user_message}, create 3 short, beginner-level questions."
             }
+
             try:
-                response = openai.ChatCompletion.create(
-                    model="deepseek-chat",
-                    messages=[system_prompt, user_prompt]
+                completion = client.chat.completions.create(
+                    model="deepseek/deepseek-r1:free",
+                    messages=[system_msg, user_msg],
+                    extra_headers={
+                        # "HTTP-Referer": "<YOUR_SITE_URL>",
+                        # "X-Title": "<YOUR_SITE_NAME>",
+                    },
+                    extra_body={},
                 )
-                if response.choices:
-                    questions_text = response.choices[0].message["content"].strip()
+                if completion.choices:
+                    questions_text = completion.choices[0].message.content.strip()
                 else:
                     questions_text = "No questions generated."
 
@@ -281,3 +292,4 @@ def chat():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
+
