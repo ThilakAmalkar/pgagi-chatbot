@@ -1,72 +1,72 @@
 import os
 import re
+import openai
 from flask import Flask, render_template, request, jsonify, session
 from flask_session import Session
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-# 1) Import OpenAI's SDK
-from openai import OpenAI
-
-# 2) Load environment variables
 load_dotenv()
+
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 
-# 3) Configure MongoDB
+# Configure MongoDB
 mongo_client = MongoClient(MONGODB_URI)
-db = mongo_client["sample_database"]    # Database name
-collection = db["pgagi"]               # Collection name
+db = mongo_client["sample_database"]
+collection = db["pgagi"]
 
-# 4) Initialize Flask
 app = Flask(__name__)
 app.secret_key = 'some_random_secret_key'
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
-# 5) Create a DeepSeek client object using OpenAI-compatible approach
-client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
+# ------------------------------------------------------------------
+# Configure openai to talk to DeepSeek endpoint
+# ------------------------------------------------------------------
+openai.api_key = DEEPSEEK_API_KEY
+openai.api_base = "https://api.deepseek.com"  # or "https://api.deepseek.com/v1" if needed
 
+# If your DeepSeek endpoint requires additional headers or other config,
+# you might need openai.requestssession or openai.proxy, but typically not.
+
+# ------------------------------------------------------------------
+# Validation with DeepSeek
+# ------------------------------------------------------------------
 def validate_with_deepseek(user_input, field_type):
     """
-    Validate user input for a specific field type using DeepSeek.
+    Validate user input for a specific field type using DeepSeek (OpenAI-compatible).
     Must respond STRICTLY with "VALID" or "INVALID".
     """
-    # We'll pass a system message instructing the model to respond with "VALID" or "INVALID" only.
+    system_msg = (
+        "You are a strict validator for user input fields.\n\n"
+        "Rules:\n"
+        "- Respond ONLY with 'VALID' or 'INVALID' (uppercase, no extra words).\n"
+        "- Full Name: At least two words, primarily alphabetic.\n"
+        "- Email Address: Must have '@' and a domain extension like .com, etc.\n"
+        "- Phone Number: Mostly digits (+, -, spaces), at least 7 digits.\n"
+        "- Years of Experience: Integer 0-60.\n"
+        "- Desired Position: At least 2 letters.\n"
+        "- Current Location: At least 2 letters.\n"
+        "- Tech Stack: Non-empty, at least 2 letters.\n"
+    )
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a strict validator for user input fields.\n\n"
-                "Rules:\n"
-                "- Respond ONLY with 'VALID' or 'INVALID' (uppercase, no extra words).\n"
-                "- Full Name: At least two words, primarily alphabetic.\n"
-                "- Email Address: Must have '@' and a domain extension like .com, etc.\n"
-                "- Phone Number: Mostly digits (+, -, spaces), at least 7 digits.\n"
-                "- Years of Experience: Integer 0-60.\n"
-                "- Desired Position: At least 2 letters.\n"
-                "- Current Location: At least 2 letters.\n"
-                "- Tech Stack: Non-empty, at least 2 letters.\n"
-            )
-        },
+        {"role": "system", "content": system_msg},
         {
             "role": "user",
-            "content": f"Field Type: {field_type}\nUser Input: {user_input}"
-        }
+            "content": f"Field Type: {field_type}\nUser Input: {user_input}",
+        },
     ]
 
     try:
-        # Send a chat completion request to DeepSeek
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=messages,
-            stream=False
+        response = openai.ChatCompletion.create(
+            model="deepseek-chat",  # Adjust if your model name differs
+            messages=messages
         )
-        # Typically, the response will have a structure like response.choices[0].message["content"]
-        # but adapt as needed if DeepSeek differs.
-        if response and response.choices:
-            output_text = response.choices[0].message["content"].strip().upper()
-            return (output_text == "VALID")
+        # Parse response
+        if response.choices:
+            text_out = response.choices[0].message["content"].strip().upper()
+            return (text_out == "VALID")
         else:
             return False
     except Exception as e:
@@ -75,9 +75,8 @@ def validate_with_deepseek(user_input, field_type):
 
 @app.route('/')
 def index():
-    # Clear session on page load
     session.clear()
-    return render_template('index.html')  # Your main HTML file
+    return render_template('index.html')
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -96,7 +95,6 @@ def chat():
 
     # Conversation flow
     if stage == 0:
-        # Stage 0: greet
         session['stage'] = 1
         return jsonify({
             'bot_message': (
@@ -107,7 +105,6 @@ def chat():
         })
 
     elif stage == 1:
-        # Full name
         if validate_with_deepseek(user_message, "full name"):
             candidate_data['full_name'] = user_message
             session['stage'] = 2
@@ -116,7 +113,6 @@ def chat():
             return jsonify({'bot_message': "That doesn't look like a valid full name. Please try again."})
 
     elif stage == 2:
-        # Email
         sanitized_email = re.sub(r'[<>]', '', user_message.strip())
         email_regex = r'^[\w\.-]+@[\w\.-]+\.\w+$'
         if re.match(email_regex, sanitized_email):
@@ -130,7 +126,6 @@ def chat():
             return jsonify({'bot_message': "That doesn't look like a valid email address. Please try again."})
 
     elif stage == 3:
-        # Phone
         if validate_with_deepseek(user_message, "phone number"):
             candidate_data['phone'] = user_message
             session['stage'] = 4
@@ -139,7 +134,6 @@ def chat():
             return jsonify({'bot_message': "That doesn't look like a valid phone number. Please try again."})
 
     elif stage == 4:
-        # Years of experience (0-50)
         try:
             years = int(user_message)
             if 0 <= years <= 50:
@@ -155,7 +149,6 @@ def chat():
             return jsonify({'bot_message': "That doesn't look like a valid integer. Please try again."})
 
     elif stage == 5:
-        # Desired position
         if validate_with_deepseek(user_message, "desired position"):
             candidate_data['desired_positions'] = user_message
             session['stage'] = 6
@@ -164,7 +157,6 @@ def chat():
             return jsonify({'bot_message': "That doesn't look like a valid desired position. Please try again."})
 
     elif stage == 6:
-        # Current location
         if validate_with_deepseek(user_message, "current location"):
             candidate_data['current_location'] = user_message
             session['stage'] = 7
@@ -173,12 +165,10 @@ def chat():
             return jsonify({'bot_message': "That doesn't look like a valid location. Please try again."})
 
     elif stage == 7:
-        # Tech stack
         if validate_with_deepseek(user_message, "tech stack"):
             candidate_data['tech_stack'] = user_message
 
-            # Generate 3 short questions using DeepSeek
-            system_message = {
+            system_prompt = {
                 "role": "system",
                 "content": "You are an interviewer creating beginner-level questions. "
                            "Generate exactly 3 short questions, each limited to 2 lines."
@@ -188,19 +178,17 @@ def chat():
                 "content": f"For the tech stack: {user_message}, create 3 short, beginner-level questions."
             }
             try:
-                response = client.chat.completions.create(
+                response = openai.ChatCompletion.create(
                     model="deepseek-chat",
-                    messages=[system_message, user_prompt],
-                    stream=False
+                    messages=[system_prompt, user_prompt]
                 )
-                if response and response.choices:
+                if response.choices:
                     questions_text = response.choices[0].message["content"].strip()
                 else:
                     questions_text = "No questions generated."
 
                 questions_list = [q.strip() for q in questions_text.split('\n') if q.strip()]
 
-                # If the first line is something like "Here are 3 questions...", remove it
                 if questions_list and 'here are' in questions_list[0].lower():
                     questions_list.pop(0)
 
@@ -228,7 +216,6 @@ def chat():
             return jsonify({'bot_message': "That doesn't look like a valid tech stack. Please try again."})
 
     elif stage == 8:
-        # The user is answering question 1
         answers = session.get('answers', [])
         answers.append(user_message)
         session['answers'] = answers
@@ -244,7 +231,6 @@ def chat():
             return jsonify({'bot_message': "No more questions. Type 'exit' to end."})
 
     elif stage == 9:
-        # The user is answering question 2
         answers = session.get('answers', [])
         answers.append(user_message)
         session['answers'] = answers
@@ -260,22 +246,18 @@ def chat():
             return jsonify({'bot_message': "No more questions. Type 'exit' to end."})
 
     elif stage == 10:
-        # The user is answering question 3
         answers = session.get('answers', [])
         answers.append(user_message)
         session['answers'] = answers
 
-        # Move to final stage
         session['stage'] = 11
         return jsonify({'bot_message': "Thanks for your answers! Type 'done' to finalize or 'exit' to quit."})
 
     elif stage == 11:
-        # Wait for user to type "done" or "exit"
         if user_message.lower() == 'done':
             candidate_data['answers'] = session.get('answers', [])
             candidate_data['questions'] = session.get('tech_questions_list', [])
 
-            # Insert everything into MongoDB
             collection.insert_one({
                 "full_name": candidate_data.get('full_name'),
                 "email": candidate_data.get('email'),
@@ -294,7 +276,6 @@ def chat():
             return jsonify({'bot_message': "Type 'done' to finalize or 'exit' to quit."})
 
     else:
-        # Stage >= 12
         return jsonify({'bot_message': "We've already saved your data. Type 'exit' to end."})
 
 if __name__ == "__main__":
