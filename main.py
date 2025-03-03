@@ -2,81 +2,82 @@ import os
 import re
 from flask import Flask, render_template, request, jsonify, session
 from flask_session import Session
-import google.generativeai as palm
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-# 1) Load environment variables
+# 1) Import OpenAI's SDK
+from openai import OpenAI
+
+# 2) Load environment variables
 load_dotenv()
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 
-# 2) Configure MongoDB
+# 3) Configure MongoDB
 mongo_client = MongoClient(MONGODB_URI)
 db = mongo_client["sample_database"]    # Database name
 collection = db["pgagi"]               # Collection name
 
-# 3) Initialize Flask
+# 4) Initialize Flask
 app = Flask(__name__)
 app.secret_key = 'some_random_secret_key'
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
-# 4) Configure Google Generative AI (no return value, sets global config)
-palm.configure(api_key=GEMINI_API_KEY)
+# 5) Create a DeepSeek client object using OpenAI-compatible approach
+client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
 
-# ------------------------------------------------------------------
-# Validation function using generative AI
-# ------------------------------------------------------------------
-def validate_with_ai(user_input, field_type):
+def validate_with_deepseek(user_input, field_type):
     """
-    Validate user input for a specific field type using Google's Generative AI.
+    Validate user input for a specific field type using DeepSeek.
     Must respond STRICTLY with "VALID" or "INVALID".
     """
-    prompt = f"""
-You are a strict validator for user input fields.
-
-### Field Type:
-{field_type}
-
-### User Input:
-{user_input}
-
-### Rules:
-- Respond ONLY with "VALID" or "INVALID" (uppercase, no extra words).
-- Full Name: At least two words, primarily alphabetic.
-- Email Address: Must have '@' and a domain extension like .com, etc.
-- Phone Number: Mostly digits (+, -, spaces), at least 7 digits.
-- Years of Experience: Integer 0-60.
-- Desired Position: At least 2 letters.
-- Current Location: At least 2 letters.
-- Tech Stack: Non-empty, at least 2 letters.
-    """.strip()
+    # We'll pass a system message instructing the model to respond with "VALID" or "INVALID" only.
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a strict validator for user input fields.\n\n"
+                "Rules:\n"
+                "- Respond ONLY with 'VALID' or 'INVALID' (uppercase, no extra words).\n"
+                "- Full Name: At least two words, primarily alphabetic.\n"
+                "- Email Address: Must have '@' and a domain extension like .com, etc.\n"
+                "- Phone Number: Mostly digits (+, -, spaces), at least 7 digits.\n"
+                "- Years of Experience: Integer 0-60.\n"
+                "- Desired Position: At least 2 letters.\n"
+                "- Current Location: At least 2 letters.\n"
+                "- Tech Stack: Non-empty, at least 2 letters.\n"
+            )
+        },
+        {
+            "role": "user",
+            "content": f"Field Type: {field_type}\nUser Input: {user_input}"
+        }
+    ]
 
     try:
-        response = palm.generate_text(
-            model="models/text-bison-001",  # or "models/chat-bison-001" if you prefer
-            prompt=prompt
+        # Send a chat completion request to DeepSeek
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            stream=False
         )
-        # Check the first generation
-        if response.generations:
-            result_text = response.generations[0].text.strip().upper()
-            return (result_text == "VALID")
+        # Typically, the response will have a structure like response.choices[0].message["content"]
+        # but adapt as needed if DeepSeek differs.
+        if response and response.choices:
+            output_text = response.choices[0].message["content"].strip().upper()
+            return (output_text == "VALID")
         else:
             return False
     except Exception as e:
-        print("Gemini validation error:", e)
+        print("DeepSeek validation error:", e)
         return False
 
-# ------------------------------------------------------------------
-# Routes
-# ------------------------------------------------------------------
 @app.route('/')
 def index():
     # Clear session on page load
     session.clear()
     return render_template('index.html')  # Your main HTML file
-
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -107,7 +108,7 @@ def chat():
 
     elif stage == 1:
         # Full name
-        if validate_with_ai(user_message, "full name"):
+        if validate_with_deepseek(user_message, "full name"):
             candidate_data['full_name'] = user_message
             session['stage'] = 2
             return jsonify({'bot_message': "Great! What's your email address?"})
@@ -119,7 +120,7 @@ def chat():
         sanitized_email = re.sub(r'[<>]', '', user_message.strip())
         email_regex = r'^[\w\.-]+@[\w\.-]+\.\w+$'
         if re.match(email_regex, sanitized_email):
-            if validate_with_ai(sanitized_email, "email address"):
+            if validate_with_deepseek(sanitized_email, "email address"):
                 candidate_data['email'] = sanitized_email
                 session['stage'] = 3
                 return jsonify({'bot_message': "Thanks! What's your phone number?"})
@@ -130,7 +131,7 @@ def chat():
 
     elif stage == 3:
         # Phone
-        if validate_with_ai(user_message, "phone number"):
+        if validate_with_deepseek(user_message, "phone number"):
             candidate_data['phone'] = user_message
             session['stage'] = 4
             return jsonify({'bot_message': "Got it. How many years of experience do you have?"})
@@ -142,7 +143,7 @@ def chat():
         try:
             years = int(user_message)
             if 0 <= years <= 50:
-                if validate_with_ai(user_message, "years of experience"):
+                if validate_with_deepseek(user_message, "years of experience"):
                     candidate_data['years_exp'] = user_message
                     session['stage'] = 5
                     return jsonify({'bot_message': "Understood. What is your desired position(s)?"})
@@ -155,7 +156,7 @@ def chat():
 
     elif stage == 5:
         # Desired position
-        if validate_with_ai(user_message, "desired position"):
+        if validate_with_deepseek(user_message, "desired position"):
             candidate_data['desired_positions'] = user_message
             session['stage'] = 6
             return jsonify({'bot_message': "Thank you. What's your current location?"})
@@ -164,7 +165,7 @@ def chat():
 
     elif stage == 6:
         # Current location
-        if validate_with_ai(user_message, "current location"):
+        if validate_with_deepseek(user_message, "current location"):
             candidate_data['current_location'] = user_message
             session['stage'] = 7
             return jsonify({'bot_message': "Great! Please list your tech stack (e.g., Python, Django, SQL)."})
@@ -173,39 +174,40 @@ def chat():
 
     elif stage == 7:
         # Tech stack
-        if validate_with_ai(user_message, "tech stack"):
+        if validate_with_deepseek(user_message, "tech stack"):
             candidate_data['tech_stack'] = user_message
 
-            # Generate 3 short questions
-            prompt_text = (
-                f"You are an interviewer creating beginner-level questions for the tech stack: {user_message}. "
-                "Generate exactly 3 short questions, each limited to 2 lines. "
-                "Avoid advanced or lengthy explanations—keep them simple and concise."
-            )
+            # Generate 3 short questions using DeepSeek
+            system_message = {
+                "role": "system",
+                "content": "You are an interviewer creating beginner-level questions. "
+                           "Generate exactly 3 short questions, each limited to 2 lines."
+            }
+            user_prompt = {
+                "role": "user",
+                "content": f"For the tech stack: {user_message}, create 3 short, beginner-level questions."
+            }
             try:
-                # Use the generative AI library to generate questions
-                response = genai.generate_text(
-                    model="models/text-bison-001",
-                    prompt=prompt_text
+                response = client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=[system_message, user_prompt],
+                    stream=False
                 )
-                if response.generations:
-                    questions_text = response.generations[0].text.strip()
+                if response and response.choices:
+                    questions_text = response.choices[0].message["content"].strip()
                 else:
                     questions_text = "No questions generated."
 
-                # Split into lines
                 questions_list = [q.strip() for q in questions_text.split('\n') if q.strip()]
 
-                # Remove "intro" line if needed
+                # If the first line is something like "Here are 3 questions...", remove it
                 if questions_list and 'here are' in questions_list[0].lower():
                     questions_list.pop(0)
 
-                # Save to session
                 session['tech_questions_list'] = questions_list
                 session['answers'] = []
                 session['current_q_index'] = 0
 
-                # Move to stage 8
                 session['stage'] = 8
                 if questions_list:
                     first_question = questions_list[0]
@@ -220,12 +222,11 @@ def chat():
                     return jsonify({'bot_message': "No questions generated. Type 'exit' to end."})
 
             except Exception as e:
-                print("Gemini API error:", e)
+                print("DeepSeek generation error:", e)
                 return jsonify({'bot_message': "Oops, there was an error generating questions. Please try again or type 'exit' to end."})
         else:
             return jsonify({'bot_message': "That doesn't look like a valid tech stack. Please try again."})
 
-    # ------------------ Handling the 3 Tech Questions ------------------
     elif stage == 8:
         # The user is answering question 1
         answers = session.get('answers', [])
@@ -296,10 +297,6 @@ def chat():
         # Stage >= 12
         return jsonify({'bot_message': "We've already saved your data. Type 'exit' to end."})
 
-# ------------------------------------------------------------------
-# 7) Run the App
-# ------------------------------------------------------------------
 if __name__ == "__main__":
-    # For Railway, '0.0.0.0' is typical, with an env var for port
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
