@@ -160,85 +160,85 @@ def chat():
         else:
             return jsonify({'bot_message': "That doesn't look like a valid location. Please try again."})
 
-elif stage == 7:
-    # Validate tech stack
-    if validate_with_deepseek(user_message, "tech stack"):
-        candidate_data['tech_stack'] = user_message
-
-        # Force the model to produce exactly 3 lines labeled Q1:, Q2:, Q3:
-        system_msg = {
-            "role": "system",
-            "content": (
-                "You are an interviewer creating exactly 3 short, beginner-level questions. "
-                "Each question must begin with 'Q1:', 'Q2:', or 'Q3:' and then a brief question. "
-                "No extra lines, no disclaimers, no repeated numbering. "
-                "Keep each question short (max 2 lines)."
-            )
-        }
-        user_msg = {
-            "role": "user",
-            "content": f"The tech stack is: {user_message}"
-        }
-
-        try:
-            completion = openai.ChatCompletion.create(
-                model="deepseek/deepseek-r1:free",
-                messages=[system_msg, user_msg]
-            )
-            if completion.choices:
-                questions_text = completion.choices[0].message["content"].strip()
-            else:
-                questions_text = "No questions generated."
-
-            # Split by lines, ignoring empties
-            lines = [line.strip() for line in questions_text.split('\n') if line.strip()]
-
-            # Post-process lines to unify or remove extraneous text
-            questions_list = []
-            for line in lines:
-                # If the line starts with "Q1:", "Q2:", or "Q3:", keep it
-                lower_line = line.lower()
-                if lower_line.startswith("q1:"):
-                    # Remove "q1:" prefix and unify format
-                    question = line[3:].strip()
-                    questions_list.append(f"Q1: {question}")
-                elif lower_line.startswith("q2:"):
-                    question = line[3:].strip()
-                    questions_list.append(f"Q2: {question}")
-                elif lower_line.startswith("q3:"):
-                    question = line[3:].strip()
-                    questions_list.append(f"Q3: {question}")
-
-            # If the model gave us fewer than 3 lines, or none at all, handle that
-            if len(questions_list) < 3:
-                # Optionally fill them with placeholders or skip
-                pass
-
-            session['tech_questions_list'] = questions_list
-            session['answers'] = []
-            session['current_q_index'] = 0
-
-            session['stage'] = 8
-            if questions_list:
-                first_question = questions_list[0]
+    elif stage == 7:
+        # Validate tech stack
+        if validate_with_deepseek(user_message, "tech stack"):
+            candidate_data['tech_stack'] = user_message
+    
+            # Force the model to produce exactly 3 lines labeled Q1:, Q2:, Q3:
+            system_msg = {
+                "role": "system",
+                "content": (
+                    "You are an interviewer creating exactly 3 short, beginner-level questions. "
+                    "Each question must begin with 'Q1:', 'Q2:', or 'Q3:' and then a brief question. "
+                    "No extra lines, no disclaimers, no repeated numbering. "
+                    "Keep each question short (max 2 lines)."
+                )
+            }
+            user_msg = {
+                "role": "user",
+                "content": f"The tech stack is: {user_message}"
+            }
+    
+            try:
+                completion = openai.ChatCompletion.create(
+                    model="deepseek/deepseek-r1:free",
+                    messages=[system_msg, user_msg]
+                )
+                if completion.choices:
+                    questions_text = completion.choices[0].message["content"].strip()
+                else:
+                    questions_text = "No questions generated."
+    
+                # Split by lines, ignoring empties
+                lines = [line.strip() for line in questions_text.split('\n') if line.strip()]
+    
+                # Post-process lines to unify or remove extraneous text
+                questions_list = []
+                for line in lines:
+                    # If the line starts with "Q1:", "Q2:", or "Q3:", keep it
+                    lower_line = line.lower()
+                    if lower_line.startswith("q1:"):
+                        # Remove "q1:" prefix and unify format
+                        question = line[3:].strip()
+                        questions_list.append(f"Q1: {question}")
+                    elif lower_line.startswith("q2:"):
+                        question = line[3:].strip()
+                        questions_list.append(f"Q2: {question}")
+                    elif lower_line.startswith("q3:"):
+                        question = line[3:].strip()
+                        questions_list.append(f"Q3: {question}")
+    
+                # If the model gave us fewer than 3 lines, or none at all, handle that
+                if len(questions_list) < 3:
+                    # Optionally fill them with placeholders or skip
+                    pass
+    
+                session['tech_questions_list'] = questions_list
+                session['answers'] = []
+                session['current_q_index'] = 0
+    
+                session['stage'] = 8
+                if questions_list:
+                    first_question = questions_list[0]
+                    return jsonify({
+                        'bot_message': (
+                            "Thanks! Let's go through your tech questions.\n\n"
+                            f"Question 1: {first_question}"
+                        )
+                    })
+                else:
+                    session['stage'] = 11
+                    return jsonify({'bot_message': "No questions generated. Type 'exit' to end."})
+    
+            except Exception as e:
+                print("DeepSeek generation error:", e)
                 return jsonify({
-                    'bot_message': (
-                        "Thanks! Let's go through your tech questions.\n\n"
-                        f"Question 1: {first_question}"
-                    )
+                    'bot_message': "Oops, there was an error generating questions. "
+                                   "Please try again or type 'exit' to end."
                 })
-            else:
-                session['stage'] = 11
-                return jsonify({'bot_message': "No questions generated. Type 'exit' to end."})
-
-        except Exception as e:
-            print("DeepSeek generation error:", e)
-            return jsonify({
-                'bot_message': "Oops, there was an error generating questions. "
-                               "Please try again or type 'exit' to end."
-            })
-    else:
-        return jsonify({'bot_message': "That doesn't look like a valid tech stack. Please try again."})
+        else:
+            return jsonify({'bot_message': "That doesn't look like a valid tech stack. Please try again."})
 
 
     elif stage == 8:
