@@ -1,29 +1,36 @@
+import os
+import re
 from flask import Flask, render_template, request, jsonify, session
 from flask_session import Session
-from google import genai
-import re
-import os
+import google.generativeai as palm
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
+# 1) Load environment variables
 load_dotenv()
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
+# 2) Configure MongoDB
 mongo_client = MongoClient(MONGODB_URI)
 db = mongo_client["sample_database"]    # Database name
 collection = db["pgagi"]               # Collection name
 
+# 3) Initialize Flask
 app = Flask(__name__)
 app.secret_key = 'some_random_secret_key'
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+# 4) Configure Google Generative AI (no return value, sets global config)
+palm.configure(api_key=GEMINI_API_KEY)
 
-def validate_with_gemini(user_input, field_type):
+# ------------------------------------------------------------------
+# Validation function using generative AI
+# ------------------------------------------------------------------
+def validate_with_ai(user_input, field_type):
     """
-    Validate user input for a specific field type using Gemini.
+    Validate user input for a specific field type using Google's Generative AI.
     Must respond STRICTLY with "VALID" or "INVALID".
     """
     prompt = f"""
@@ -47,23 +54,29 @@ You are a strict validator for user input fields.
     """.strip()
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt
+        response = palm.generate_text(
+            model="models/text-bison-001",  # or "models/chat-bison-001" if you prefer
+            prompt=prompt
         )
-        result = response.text.strip().upper()
-        return (result == "VALID")
+        # Check the first generation
+        if response.generations:
+            result_text = response.generations[0].text.strip().upper()
+            return (result_text == "VALID")
+        else:
+            return False
     except Exception as e:
         print("Gemini validation error:", e)
         return False
+
 # ------------------------------------------------------------------
-# 6) Routes
+# Routes
 # ------------------------------------------------------------------
 @app.route('/')
 def index():
     # Clear session on page load
     session.clear()
     return render_template('index.html')  # Your main HTML file
+
 
 @app.route('/chat', methods=['POST'])
 def chat():
