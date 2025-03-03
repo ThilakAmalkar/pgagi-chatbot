@@ -1,34 +1,29 @@
-import os
-import re
 from flask import Flask, render_template, request, jsonify, session
 from flask_session import Session
-import google.generativeai as palm  # <-- import as palm
+from google import genai
+import re
+import os
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
 load_dotenv()
-
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 mongo_client = MongoClient(MONGODB_URI)
-db = mongo_client["sample_database"]
-collection = db["pgagi"]
+db = mongo_client["sample_database"]    # Database name
+collection = db["pgagi"]               # Collection name
 
 app = Flask(__name__)
 app.secret_key = 'some_random_secret_key'
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
-# Configure the library once at startup
-palm.configure(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
-# ------------------------------------------------------------------
-# 5) Validation function using generative AI
-# ------------------------------------------------------------------
-def validate_with_ai(user_input, field_type):
+def validate_with_gemini(user_input, field_type):
     """
-    Validate user input for a specific field type using Google's Generative AI.
+    Validate user input for a specific field type using Gemini.
     Must respond STRICTLY with "VALID" or "INVALID".
     """
     prompt = f"""
@@ -52,21 +47,15 @@ You are a strict validator for user input fields.
     """.strip()
 
     try:
-        # Use palm.generate_text or palm.chat, depending on your needs
-        response = palm.generate_text(
-            model="models/text-bison-001",
-            prompt=prompt
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
         )
-        # Check the generation
-        if response.generations:
-            text_out = response.generations[0].text.strip().upper()
-            return (text_out == "VALID")
-        else:
-            return False
+        result = response.text.strip().upper()
+        return (result == "VALID")
     except Exception as e:
         print("Gemini validation error:", e)
         return False
-
 # ------------------------------------------------------------------
 # 6) Routes
 # ------------------------------------------------------------------
